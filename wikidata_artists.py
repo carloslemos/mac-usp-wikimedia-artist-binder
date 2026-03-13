@@ -65,18 +65,27 @@ def query_wikidata_artist(name: str):
     # escape quotes/backslashes so the SPARQL string stays valid
     safe_name = name.replace('"', '\\"').replace('\\', '\\\\')
     query = textwrap.dedent(f"""\
-        SELECT ?artist ?artistLabel ?country ?countryLabel ?birth ?death ?birthPlace ?birthPlaceLabel ?deathPlace ?deathPlaceLabel WHERE {{
+        SELECT ?artist ?artistLabel ?country ?countryLabel ?country_lat ?country_lon ?birth ?death ?birthPlace ?birthPlaceLabel ?birth_lat ?birth_lon ?deathPlace ?deathPlaceLabel WHERE {{
           ?artist wdt:P31 wd:Q5 .
           ?artist rdfs:label "{safe_name}"@en .
-          
+
           OPTIONAL {{ ?artist wdt:P569 ?birth }}
           OPTIONAL {{ ?artist wdt:P570 ?death }}
           OPTIONAL {{ ?artist wdt:P27 ?country }}
+          OPTIONAL {{ ?country wdt:P625 ?countryCoord .
+            BIND(xsd:float(REPLACE(STR(?countryCoord), "Point\\\\(([^ ]+) .+\\\\)", "$1")) AS ?country_lon)
+            BIND(xsd:float(REPLACE(STR(?countryCoord), "Point\\\\([^ ]+ ([^ ]+)\\\\)", "$1")) AS ?country_lat)
+          }}
           OPTIONAL {{ ?artist wdt:P19 ?birthPlace }}
+          OPTIONAL {{ ?birthPlace wdt:P625 ?birthCoord .
+            BIND(xsd:float(REPLACE(STR(?birthCoord), "Point\\\\(([^ ]+) .+\\\\)", "$1")) AS ?birth_lon)
+            BIND(xsd:float(REPLACE(STR(?birthCoord), "Point\\\\([^ ]+ ([^ ]+)\\\\)", "$1")) AS ?birth_lat)
+          }}
           OPTIONAL {{ ?artist wdt:P20 ?deathPlace }}
 
-          SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en,pt". }}
+          SERVICE wikibase:label {{ bd:serviceParam wikibase:language "pt,en". }}
         }}
+        LIMIT 1
         """)
     sparql = SPARQLWrapper(
         WIKIDATA_ENDPOINT,
@@ -85,9 +94,7 @@ def query_wikidata_artist(name: str):
     )
     sparql.setQuery(query)
     sparql.setReturnFormat(JSON)
-    sparql.setTimeout(10)  # set a timeout to avoid hanging indefinitely
-    sparql.setQuery(query)
-    sparql.setReturnFormat("json")
+    sparql.setTimeout(10)  # increased timeout for complex coordinate lookups
     
     data = sparql.query().convert()
 
@@ -98,8 +105,12 @@ def query_wikidata_artist(name: str):
             "wikidata_uri": item["artist"]["value"],
             "label": item.get("artistLabel", {}).get("value"),
             "country": item.get("countryLabel", {}).get("value"),
+            "country_lat": item.get("country_lat", {}).get("value"),
+            "country_lon": item.get("country_lon", {}).get("value"),
             "birth": item.get("birth", {}).get("value"),
             "birth_place": item.get("birthPlaceLabel", {}).get("value"),
+            "birth_lat": item.get("birth_lat", {}).get("value"),
+            "birth_lon": item.get("birth_lon", {}).get("value"),
             "death": item.get("death", {}).get("value"),
             "death_place": item.get("deathPlaceLabel", {}).get("value")
         })
@@ -107,15 +118,21 @@ def query_wikidata_artist(name: str):
     return results
 
 
+def pick_best_result(results: list[dict]) -> dict:
+    """Return the single best result from a list by counting non-None fields."""
+    return max(results, key=lambda r: sum(v is not None for v in r.values()))
+
+
 def main():
 
     df = load_data()
 
     artists = get_unique_artists(df)
+    artists = sorted(artists)
 
     all_results = []
 
-    for artist in artists[:100]:
+    for artist in artists:
 
         print("Consultando:", artist)
 
@@ -128,18 +145,37 @@ def main():
                     "wikidata_uri": None,
                     "label": None,
                     "country": None,
+                    "country_lat": None,
+                    "country_lon": None,
                     "birth": None,
                     "birth_place": None,
+                    "birth_lat": None,
+                    "birth_lon": None,
                     "death": None,
+                    "death_place": None,
                 })
 
-            all_results.extend(results)
+            all_results.append(pick_best_result(results))
 
         except Exception as e:
             print("Erro:", artist, e)
+            results.append({
+                "artist_input": artist,
+                "wikidata_uri": None,
+                "label": "Erro ao carregar",
+                "country": None,
+                "country_lat": None,
+                "country_lon": None,
+                "birth": None,
+                "birth_place": None,
+                "birth_lat": None,
+                "birth_lon": None,
+                "death": None,
+                "death_place": None,
+            })
 
         # evitar bloqueio da Wikidata
-        time.sleep(1)
+        time.sleep(1.1)
 
     output = pd.DataFrame(all_results)
 
