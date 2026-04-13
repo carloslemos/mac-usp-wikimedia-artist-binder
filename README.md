@@ -1,31 +1,81 @@
-# Meta-Acervo: Wikidata Artist Lookup
+# Meta-Acervo: Consolidação e Enriquecimento de Dados de Criadores
 
-This project fetches artist data from a CSV file and queries Wikidata to retrieve additional information like birth/death dates and places.
+Sistema para combinar múltiplas fontes de dados sobre criadores de arte, deduplica registros, enriquece com informações de educação via fuzzy matching e geocodifica locais de nascimento/morte.
 
-## Installation
+## Instalação
 
-1. Clone or download the repository.
-2. Install dependencies:
+1. Clone ou baixe o repositório.
+2. Instale as dependências:
    ```bash
    pip install -r requirements.txt
    ```
 
-## Usage
+## Uso
 
-Run the script to process the first 3 artists from the CSV and save results to `wikidata_artists.csv`:
+### 1. Combinação de Inputs (Principal)
+
+Combina 4 CSVs biográficos e enriquece com dados de educação:
 
 ```bash
-python wikidata_artists.py
+python combine_all_inputs.py
 ```
 
-The script loads data from a remote CSV, extracts unique artist names, queries Wikidata for each, and outputs a CSV with enriched data.
+**Entrada:**
+- `inputs/FILE 0412.csv` - Dados FILE
+- `inputs/MAC consolidado.csv` - Dados MAC
+- `inputs/OUT_merged.csv` - Dados de outras fontes
+- `inputs/planilha_focada_formacao_continua_56.csv` - Dados de educação
+- `inputs/20250705_processed.json` - Dados de obras/acervo
 
-## Dependencies
+**Saída:**
+- `outputs/resultado_combinado.csv` - Dados consolidados
 
-- pandas: For data manipulation
-- SPARQLWrapper: For querying Wikidata SPARQL endpoint
+**Funcionalidades:**
+- Deduplica criadores (case-insensitive)
+- Enriquece com educação via fuzzy matching (threshold: 80%)
+- Associa museu/acervo de cada criador a partir do JSON
 
-## Notes
+### 2. Geocodificação (Opcional)
 
-- Respects Wikidata's rate limits with a 1-second delay between queries.
-- Uses the Wikidata SPARQL endpoint to fetch artist metadata.
+Geocodifica locais de nascimento e morte:
+
+```bash
+python geocode_data.py
+```
+
+**Entrada:**
+- `outputs/resultado_combinado.csv`
+
+**Saída:**
+- `outputs/resultado_geolocalizado.csv`
+
+**Adiciona colunas:**
+- `lat_birth`, `lon_birth`, `score_birth` - para local de nascimento
+- `lat_death`, `lon_death`, `score_death` - para local de morte
+
+Usa ArcGIS World Geocoding Service (público, sem chave).
+
+## Estrutura do Projeto
+
+```
+meta-acervo/
+├── combine_all_inputs.py      # Script principal de consolidação
+├── geocode_data.py            # Script de geocodificação
+├── requirements.txt           # Dependências
+├── inputs/                    # Dados de entrada (CSVs e JSON)
+├── outputs/                   # Dados processados
+├── tests/                     # Testes automatizados
+└── legacy/                    # Scripts anteriores (histórico)
+```
+
+## Dependências
+
+- **pandas** - Manipulação de dados
+- **rapidfuzz** - Fuzzy matching para enriquecimento de educação
+- **requests** - Chamadas HTTP para geocodificação
+
+## Notas
+
+- Respeita limites de taxa da API de geocodificação ArcGIS com delay entre requisições.
+- Usa token_set_ratio do rapidfuzz para fuzzy matching com threshold configurável (padrão: 80%).
+- Deduplica mantendo todas as fontes/acervos em campos consolidados.
